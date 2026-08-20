@@ -1,0 +1,42 @@
+{
+  "name": "openspender",
+  "version": "0.1.0",
+  "description": "CLI and JavaScript client for OpenSpender — the self-custodial wallet that lets AI agents pay for models, search, and compute as they go.",
+  "keywords": [
+    "openspender",
+    "wallet",
+    "payments",
+    "ai-agents",
+    "x402",
+    "mpp",
+    "claude"
+  ],
+  "homepage": "https://openspender.com",
+  "bugs": {
+    "url": "https://github.com/imkrishnamadala/openspender/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imkrishnamadala/openspender.git"
+  },
+  "license": "MIT",
+  "author": "Krishna Madala",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "bin": {
+    "openspender": "bin/openspender.js"
+  },
+  "files": [
+    "bin/",
+    "index.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
