@@ -1,6 +1,6 @@
 {
   "name": "openspender",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "CLI and JavaScript client for OpenSpender — the self-custodial wallet that lets AI agents pay for models, search, and compute as they go.",
   "keywords": [
     "openspender",

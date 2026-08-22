@@ -9,6 +9,19 @@ OpenSpender routes requests to 15,000+ machine-payable endpoints across the
 [x402](https://openspender.com/services) and [MPP](https://openspender.com/mpp)
 payment standards.
 
+## Connect every AI tool at once
+
+```sh
+npx openspender connect
+```
+
+Detects Claude Code, Codex, opencode, Gemini CLI, and Cursor on this machine and
+points each at OpenSpender's MCP server. Each tool then runs a one-time consent
+in your browser and mints its own card — caps and revocation live at
+[openspender.com/wallet](https://openspender.com/wallet). `--dry-run` previews
+without writing, `--force` rewrites, and `--card openspender_…` embeds a card
+header for headless machines where a browser consent can't run.
+
 ## Getting started
 
 ```sh

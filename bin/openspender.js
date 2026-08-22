@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { OpenSpender, SITE_URL } from "../index.js";
+import { runConnect } from "./connect.js";
 
 const pkg = createRequire(import.meta.url)("../package.json");
 
@@ -14,6 +15,9 @@ function usage() {
   return `Usage: openspender <command>
 
 Commands:
+  connect  Wire every AI tool on this machine (Claude Code, Codex,
+           opencode, Gemini CLI, Cursor) to the OpenSpender MCP server.
+           Flags: --dry-run, --force, --card <openspender_…>
   init     Set up OpenSpender on this machine
   status   Show local setup and live network stats
   help     Show this message
@@ -103,6 +107,9 @@ async function main() {
   }
   const [command = "help"] = process.argv.slice(2);
   switch (command) {
+    case "connect":
+      runConnect(process.argv.slice(3));
+      break;
     case "init":
       await init();
       break;
