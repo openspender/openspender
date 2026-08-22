@@ -17,7 +17,8 @@ function usage() {
 Commands:
   connect  Wire every AI tool on this machine (Claude Code, Codex,
            opencode, Gemini CLI, Cursor) to the OpenSpender MCP server.
-           Flags: --dry-run, --force, --card <openspender_…>
+           One browser approval mints a card per tool. Flags:
+           --dry-run, --force, --no-auth, --card <openspender_…>
   init     Set up OpenSpender on this machine
   status   Show local setup and live network stats
   help     Show this message
@@ -108,7 +109,7 @@ async function main() {
   const [command = "help"] = process.argv.slice(2);
   switch (command) {
     case "connect":
-      runConnect(process.argv.slice(3));
+      await runConnect(process.argv.slice(3));
       break;
     case "init":
       await init();

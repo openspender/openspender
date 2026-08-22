@@ -15,12 +15,16 @@ payment standards.
 npx openspender connect
 ```
 
-Detects Claude Code, Codex, opencode, Gemini CLI, and Cursor on this machine and
-points each at OpenSpender's MCP server. Each tool then runs a one-time consent
-in your browser and mints its own card — caps and revocation live at
-[openspender.com/wallet](https://openspender.com/wallet). `--dry-run` previews
-without writing, `--force` rewrites, and `--card openspender_…` embeds a card
-header for headless machines where a browser consent can't run.
+Detects Claude Code, Codex, opencode, Gemini CLI, and Cursor, opens one browser
+approval, and wires every detected tool to OpenSpender's MCP server — each with
+its own freshly minted card at caps chosen on the consent screen. Tools are
+authenticated the moment the command finishes. Caps, activity, and revocation
+live at [openspender.com/wallet](https://openspender.com/wallet).
+
+Flags: `--dry-run` previews without writing, `--force` rewrites existing
+entries, `--no-auth` skips the browser approval (each tool then authenticates
+itself on first use), and `--card openspender_…` uses one existing card for
+everything (headless machines, CI).
 
 ## Getting started
 

@@ -12,7 +12,69 @@ import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 export const MCP_URL = "https://openspender.com/api/mcp";
+const SITE_URL = "https://openspender.com";
 const WIN = process.platform === "win32";
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const openBrowser = (url) => {
+  try {
+    if (WIN) spawnSync("cmd", ["/c", "start", "", url], { stdio: "ignore" });
+    else if (process.platform === "darwin")
+      spawnSync("open", [url], { stdio: "ignore" });
+    else spawnSync("xdg-open", [url], { stdio: "ignore" });
+  } catch {
+    /* the URL is printed either way */
+  }
+};
+
+/* One browser approval for the whole machine: the server mints a card per
+   detected tool and this terminal collects them on its next poll. Returns
+   a Map of harness label → card token, or null (denied, expired, offline)
+   — in which case configs are still written and each tool authenticates
+   itself on first use. */
+async function deviceAuth(labels) {
+  try {
+    const startRes = await fetch(`${SITE_URL}/api/oauth/device/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ harnesses: labels }),
+    });
+    if (!startRes.ok) return null;
+    const { device_code, verify_url, interval = 2, expires_in = 600 } =
+      await startRes.json();
+    console.log(`Approve this machine in your browser:\n  ${verify_url}\n`);
+    openBrowser(verify_url);
+
+    const deadline = Date.now() + expires_in * 1000;
+    while (Date.now() < deadline) {
+      await sleep(Math.max(interval, 2) * 1000);
+      let j;
+      try {
+        const r = await fetch(`${SITE_URL}/api/oauth/device/poll`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ device_code }),
+        });
+        if (!r.ok) continue;
+        j = await r.json();
+      } catch {
+        continue; // transient network blip — keep polling
+      }
+      if (j.status === "approved")
+        return new Map(j.cards.map((c) => [c.harness, c.token]));
+      if (j.status === "denied") {
+        console.log("Denied in the browser — wiring without auth instead.\n");
+        return null;
+      }
+      if (j.status !== "pending") return null;
+    }
+    console.log("Timed out waiting for approval — wiring without auth.\n");
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 const binaryExists = (name) => {
   try {
@@ -211,27 +273,49 @@ export function wireCursor(o) {
   return { harness, status: "wired", detail: "restart Cursor to pick it up" };
 }
 
-export function runConnect(rest) {
+const HARNESSES = [
+  ["Claude Code", wireClaudeCode],
+  ["Codex", wireCodex],
+  ["opencode", wireOpencode],
+  ["Gemini CLI", wireGemini],
+  ["Cursor", wireCursor],
+];
+
+export async function runConnect(rest) {
   const dryRun = rest.includes("--dry-run");
   const force = rest.includes("--force");
+  const noAuth = rest.includes("--no-auth");
   const cardIdx = rest.indexOf("--card");
   const card = cardIdx >= 0 ? rest[cardIdx + 1] : undefined;
   if (card && !card.startsWith("openspender_")) {
     console.error("--card wants an allowance token (openspender_…)");
     process.exit(1);
   }
-  const o = { dryRun, force, card };
 
   console.log(
     `openspender connect — ${MCP_URL}${dryRun ? "  (dry run)" : ""}\n`,
   );
-  const outcomes = [
-    wireClaudeCode(o),
-    wireCodex(o),
-    wireOpencode(o),
-    wireGemini(o),
-    wireCursor(o),
-  ];
+
+  // Detection pass (writes nothing) — the browser consent names exactly
+  // the tools found on this machine, and only those get cards.
+  const probe = HARNESSES.map(([label, fn]) => [
+    label,
+    fn({ dryRun: true, force }),
+  ]);
+  const present = probe
+    .filter(([, out]) => out.status !== "skipped")
+    .map(([label]) => label);
+
+  // One approval for the machine, unless the caller opted out or brought
+  // a card of their own. Failure is never fatal: configs still land and
+  // each tool can authenticate itself on first use.
+  let tokens = null;
+  if (!dryRun && !noAuth && !card && present.length)
+    tokens = await deviceAuth(present);
+
+  const outcomes = HARNESSES.map(([label, fn]) =>
+    fn({ dryRun, force, card: tokens?.get(label) ?? card }),
+  );
   const pad = Math.max(...outcomes.map((x) => x.harness.length)) + 2;
   for (const x of outcomes)
     console.log(`  ${x.harness.padEnd(pad)}${x.status.padEnd(12)}${x.detail}`);
@@ -241,7 +325,12 @@ export function runConnect(rest) {
     ? `${count("would wire")} would wire`
     : `${count("wired")} wired, ${count("already")} already, ${count("failed")} failed`;
   console.log(`\n${summary}, ${count("skipped")} not present.`);
-  if (!card)
+  if (tokens)
+    console.log(
+      "Authenticated: each tool has its own card. Caps, activity, and\n" +
+        "revocation live at https://openspender.com/wallet",
+    );
+  else if (!card && !dryRun)
     console.log(
       "Each connection runs a one-time consent in your browser and mints its\n" +
         "own card — caps and revocation live at https://openspender.com/wallet",
