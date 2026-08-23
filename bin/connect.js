@@ -296,14 +296,17 @@ export async function runConnect(rest) {
     `openspender connect — ${MCP_URL}${dryRun ? "  (dry run)" : ""}\n`,
   );
 
-  // Detection pass (writes nothing) — the browser consent names exactly
-  // the tools found on this machine, and only those get cards.
+  // Detection pass (writes nothing). Only tools that will actually be
+  // (re)wired ask for cards: an already-connected tool must not mint a
+  // duplicate on every rerun — its config would keep the old card anyway,
+  // orphaning the new one. (--force reports those as rewirable, so it
+  // naturally mints fresh cards for the rewrite.)
   const probe = HARNESSES.map(([label, fn]) => [
     label,
     fn({ dryRun: true, force }),
   ]);
   const present = probe
-    .filter(([, out]) => out.status !== "skipped")
+    .filter(([, out]) => out.status === "would wire")
     .map(([label]) => label);
 
   // One approval for the machine, unless the caller opted out or brought
