@@ -84,7 +84,7 @@ just sees the result.
 
 Early release under active development — the API surface may change before 1.0.
 Feedback and issues are welcome at
-[github.com/imkrishnamadala/openspender](https://github.com/imkrishnamadala/openspender/issues).
+[github.com/openspender/openspender](https://github.com/openspender/openspender/issues).
 
 ## Documentation
 
