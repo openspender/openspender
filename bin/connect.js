@@ -281,10 +281,145 @@ const HARNESSES = [
   ["Cursor", wireCursor],
 ];
 
+/* ── the agent skill ──────────────────────────────────────────────────
+   Wiring makes the tools reachable; the skill makes them a habit — when
+   to reach for the catalog, how to treat caps and costs, how to escalate.
+   It is fetched from the canonical URL at connect time so every run
+   installs the current version and nothing here goes stale.
+
+   Where a harness has a skills directory it gets the full file; harnesses
+   that read a global memory file get a compact block between our own
+   markers. Rerunning replaces only what sits between those markers —
+   everything else in the user's files stays byte-identical. ── */
+
+const SKILL_URL = `${SITE_URL}/SKILL.md`;
+const MARK_START = "<!-- openspender:skill -->";
+const MARK_END = "<!-- /openspender:skill -->";
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+async function fetchSkill() {
+  try {
+    const r = await fetch(SKILL_URL);
+    if (!r.ok) return null;
+    const text = await r.text();
+    return text.startsWith("---") ? text : null; // frontmatter expected
+  } catch {
+    return null;
+  }
+}
+
+const skillVersion = (skill) =>
+  /version:\s*(\S+)/.exec(skill)?.[1] ?? "unknown";
+
+function memoryBlock(skill) {
+  return [
+    MARK_START,
+    `<!-- v${skillVersion(skill)} — managed by \`npx openspender connect\`; edits inside this block are overwritten -->`,
+    "## openspender",
+    "Paid APIs on the user's allowance — web search, frontier models, image",
+    "and video generation, and a machine-payable catalog — every call priced",
+    "before it is paid and capped by budgets the user set. The `openspender`",
+    "MCP server carries the tools: catalog_search, call, chat, search,",
+    "generate, balance, whoami, cards, activity.",
+    "",
+    "- Check `catalog_search` BEFORE writing a scraper, BEFORE saying",
+    "  something needs an API key, and BEFORE declaring a source",
+    "  inaccessible — the catalog grows; look first.",
+    "- The user's own dedicated tools and keys come first: openspender",
+    "  spends their balance. Offer it when it adds capability; never",
+    "  silently switch.",
+    "- A denial is the user's budget working. Name the cap and the price you",
+    "  saw; never retry it verbatim or split work to duck it. Raising caps",
+    "  is theirs: https://openspender.com/cards",
+    "- Say what things cost — every paid result carries cost_usd and tx.",
+    "- Tool responses may carry `hints`: prefer them over guessing.",
+    "- Full skill (keep it current): https://openspender.com/SKILL.md",
+    MARK_END,
+  ].join("\n");
+}
+
+function upsertBlock(path, block, dryRun) {
+  const have = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const re = new RegExp(
+    `${escapeRe(MARK_START)}[\\s\\S]*?${escapeRe(MARK_END)}`,
+  );
+  const next = re.test(have)
+    ? have.replace(re, block)
+    : have
+      ? `${have.replace(/\n*$/, "\n\n")}${block}\n`
+      : `${block}\n`;
+  if (next === have) return false;
+  if (!dryRun) writeOut(path, next);
+  return true;
+}
+
+function installSkillFile(dir, skill, dryRun) {
+  const path = join(dir, "SKILL.md");
+  const have = existsSync(path) ? readFileSync(path, "utf8") : null;
+  if (have === skill) return false;
+  if (!dryRun) writeOut(path, skill);
+  return true;
+}
+
+/* Skill homes, by harness label. `file` gets the whole skill; `block` gets
+   the compact form in that harness's global memory file. Cursor has no
+   global rules file to write — its sessions read the server's tool
+   descriptions, which carry the same triggers. */
+const SKILL_HOMES = {
+  "Claude Code": {
+    kind: "file",
+    dir: () => join(homedir(), ".claude", "skills", "openspender"),
+  },
+  Codex: { kind: "block", path: () => join(homedir(), ".codex", "AGENTS.md") },
+  opencode: {
+    kind: "block",
+    path: () => join(homedir(), ".config", "opencode", "AGENTS.md"),
+  },
+  "Gemini CLI": {
+    kind: "block",
+    path: () => join(homedir(), ".gemini", "GEMINI.md"),
+  },
+};
+
+async function installSkills(outcomes, dryRun) {
+  const eligible = outcomes.filter(
+    (x) =>
+      (x.status === "wired" ||
+        x.status === "already" ||
+        x.status === "would wire") &&
+      SKILL_HOMES[x.harness],
+  );
+  if (!eligible.length) return;
+  const skill = await fetchSkill();
+  if (!skill) {
+    console.log(
+      `\nSkill: couldn't fetch ${SKILL_URL} — rerun \`npx openspender connect\` later to install it.`,
+    );
+    return;
+  }
+  const landed = [];
+  for (const x of eligible) {
+    const home = SKILL_HOMES[x.harness];
+    const changed =
+      home.kind === "file"
+        ? installSkillFile(home.dir(), skill, dryRun)
+        : upsertBlock(home.path(), memoryBlock(skill), dryRun);
+    landed.push(`${x.harness}${changed ? "" : " (already current)"}`);
+  }
+  const verb = dryRun ? "would install for" : "installed for";
+  console.log(
+    `\nSkill v${skillVersion(skill)} ${verb}: ${landed.join(", ")}.` +
+      (outcomes.some((x) => x.harness === "Cursor" && x.status !== "skipped")
+        ? "\nCursor reads the same guidance from the server's tool descriptions."
+        : ""),
+  );
+}
+
 export async function runConnect(rest) {
   const dryRun = rest.includes("--dry-run");
   const force = rest.includes("--force");
   const noAuth = rest.includes("--no-auth");
+  const noSkill = rest.includes("--no-skill");
   const cardIdx = rest.indexOf("--card");
   const card = cardIdx >= 0 ? rest[cardIdx + 1] : undefined;
   if (card && !card.startsWith("openspender_")) {
@@ -328,6 +463,9 @@ export async function runConnect(rest) {
     ? `${count("would wire")} would wire`
     : `${count("wired")} wired, ${count("already")} already, ${count("failed")} failed`;
   console.log(`\n${summary}, ${count("skipped")} not present.`);
+
+  // The skill rides along wherever a harness is (or would be) connected.
+  if (!noSkill) await installSkills(outcomes, dryRun);
   if (tokens)
     console.log(
       "Authenticated: each tool has its own card. Caps, activity, and\n" +

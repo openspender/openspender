@@ -21,10 +21,18 @@ its own freshly minted card at caps chosen on the consent screen. Tools are
 authenticated the moment the command finishes. Caps, activity, and revocation
 live at [openspender.com/wallet](https://openspender.com/wallet).
 
+Connect also installs the OpenSpender agent skill for each connected tool —
+fetched from [openspender.com/SKILL.md](https://openspender.com/SKILL.md) at run
+time, so a rerun always installs the current version. Harnesses with a skills
+directory get the full file; harnesses that read a global memory file get a
+compact block between `openspender:skill` markers, and reruns replace only what
+sits between those markers — the rest of your files is never touched.
+
 Flags: `--dry-run` previews without writing, `--force` rewrites existing
 entries, `--no-auth` skips the browser approval (each tool then authenticates
-itself on first use), and `--card openspender_…` uses one existing card for
-everything (headless machines, CI).
+itself on first use), `--no-skill` skips the skill install, and
+`--card openspender_…` uses one existing card for everything (headless
+machines, CI).
 
 ## Getting started
 
