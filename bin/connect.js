@@ -62,7 +62,10 @@ async function deviceAuth(labels) {
         continue; // transient network blip — keep polling
       }
       if (j.status === "approved")
-        return new Map(j.cards.map((c) => [c.harness, c.token]));
+        return {
+          tokens: new Map(j.cards.map((c) => [c.harness, c.token])),
+          funded: j.funded ?? null,
+        };
       if (j.status === "denied") {
         console.log("Denied in the browser — wiring without auth instead.\n");
         return null;
@@ -447,9 +450,10 @@ export async function runConnect(rest) {
   // One approval for the machine, unless the caller opted out or brought
   // a card of their own. Failure is never fatal: configs still land and
   // each tool can authenticate itself on first use.
-  let tokens = null;
+  let auth = null;
   if (!dryRun && !noAuth && !card && present.length)
-    tokens = await deviceAuth(present);
+    auth = await deviceAuth(present);
+  const tokens = auth?.tokens ?? null;
 
   const outcomes = HARNESSES.map(([label, fn]) =>
     fn({ dryRun, force, card: tokens?.get(label) ?? card }),
@@ -466,12 +470,23 @@ export async function runConnect(rest) {
 
   // The skill rides along wherever a harness is (or would be) connected.
   if (!noSkill) await installSkills(outcomes, dryRun);
-  if (tokens)
+  if (tokens) {
     console.log(
-      "Authenticated: each tool has its own card. Caps, activity, and\n" +
-        "revocation live at https://openspender.com/wallet",
+      "Authenticated: each tool has its own card, and agent spending is\n" +
+        "enabled. Caps, activity, and revocation live at\n" +
+        "https://openspender.com/wallet",
     );
-  else if (!card && !dryRun)
+    if (auth?.funded === false) {
+      // Wired and enabled, but there is nothing to spend — that is the one
+      // remaining step, so take them straight to it.
+      console.log(
+        "\nYour wallet is empty — agents spend from your balance.\n" +
+          "Opening your wallet to add money…\n" +
+          "  https://openspender.com/wallet",
+      );
+      openBrowser("https://openspender.com/wallet");
+    }
+  } else if (!card && !dryRun)
     console.log(
       "Each connection runs a one-time consent in your browser and mints its\n" +
         "own card — caps and revocation live at https://openspender.com/wallet",
