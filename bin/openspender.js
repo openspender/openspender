@@ -16,8 +16,9 @@ function usage() {
 
 Commands:
   connect  Wire every AI tool on this machine (Claude Code, Codex,
-           opencode, Gemini CLI, Cursor) to the OpenSpender MCP server.
-           One browser approval mints a card per tool. Flags:
+           opencode, Gemini CLI, Cursor, Hermes, OpenClaw) to the
+           OpenSpender MCP server. One browser approval mints a card
+           per tool. Flags:
            --dry-run, --force, --no-auth, --card <openspender_…>
   init     Set up OpenSpender on this machine
   status   Show local setup and live network stats

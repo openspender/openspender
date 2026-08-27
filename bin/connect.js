@@ -276,12 +276,124 @@ export function wireCursor(o) {
   return { harness, status: "wired", detail: "restart Cursor to pick it up" };
 }
 
+/* ── Hermes (Nous Research): ~/.hermes/config.yaml, mcp_servers ── */
+export function wireHermes(o) {
+  const harness = "Hermes";
+  const path = join(homedir(), ".hermes", "config.yaml");
+  const present =
+    existsSync(path) || existsSync(dirname(path)) || binaryExists("hermes");
+  if (!present)
+    return { harness, status: "skipped", detail: "not found on this machine" };
+
+  const current = existsSync(path) ? readFileSync(path, "utf8") : "";
+  if (/^\s*openspender:/m.test(current) && !o.force)
+    return { harness, status: "already", detail: path };
+
+  /* Line-level YAML insertion only — the file is the user's; we add our
+     entry under mcp_servers: at whatever indent its siblings use and
+     touch nothing else. An inline map (`mcp_servers: {…}`) can't take a
+     safe text insert, so that one is reported instead of edited. */
+  const key = /^mcp_servers:[ \t]*$/m.exec(current);
+  const sib = key
+    ? /\n([ \t]+)(?=\S)/.exec(current.slice(key.index + key[0].length))
+    : null;
+  const ind = sib ? sib[1] : "  ";
+  const entry = (
+    o.card
+      ? [
+          `${ind}openspender:`,
+          `${ind}  url: "${MCP_URL}"`,
+          `${ind}  headers:`,
+          `${ind}    Authorization: "Bearer ${o.card}"`,
+        ]
+      : [
+          `${ind}openspender:`,
+          `${ind}  url: "${MCP_URL}"`,
+          `${ind}  auth: oauth`,
+        ]
+  ).join("\n");
+
+  let next;
+  if (!current.trim()) next = `mcp_servers:\n${entry}\n`;
+  else if (key)
+    next =
+      current.slice(0, key.index + key[0].length) +
+      `\n${entry}` +
+      current.slice(key.index + key[0].length);
+  else if (/^mcp_servers:/m.test(current))
+    return {
+      harness,
+      status: "failed",
+      detail: `${path} keeps mcp_servers inline — add openspender there by hand`,
+    };
+  else next = `${current.replace(/\n*$/, "\n\n")}mcp_servers:\n${entry}\n`;
+
+  if (o.dryRun)
+    return { harness, status: "would wire", detail: `merge into ${path}` };
+  writeOut(path, next);
+  return {
+    harness,
+    status: "wired",
+    detail: o.card ? "card header set" : "OAuth consent opens on first connection",
+  };
+}
+
+/* ── OpenClaw: skill-native — the full skill lands in its skills dir and
+   the card token rides openclaw.json so the agent's REST calls are
+   authenticated. Its sandboxed runs read env from the sandbox config
+   instead; the skill's own docs cover that. ── */
+export function wireOpenclaw(o) {
+  const harness = "OpenClaw";
+  const dir = join(homedir(), ".openclaw");
+  const present = existsSync(dir) || binaryExists("openclaw");
+  if (!present)
+    return { harness, status: "skipped", detail: "not found on this machine" };
+
+  const path = join(dir, "openclaw.json");
+  const read = readJson(path);
+  if (read.state === "broken")
+    return {
+      harness,
+      status: "failed",
+      detail: `${path} is not valid JSON — left untouched`,
+    };
+  const json = read.state === "ok" ? read.json : {};
+  const skills = (json.skills ??= {});
+  const entries = (skills.entries ??= {});
+  if (entries.openspender?.env?.OPENSPENDER_ALLOWANCE_TOKEN && !o.force)
+    return { harness, status: "already", detail: path };
+
+  if (!o.card)
+    return {
+      harness,
+      status: o.dryRun ? "would wire" : "wired",
+      detail: "skill only — approve in the browser (or --card) to add a token",
+    };
+  entries.openspender = {
+    ...(entries.openspender ?? {}),
+    env: {
+      ...(entries.openspender?.env ?? {}),
+      OPENSPENDER_ALLOWANCE_TOKEN: o.card,
+    },
+  };
+  if (o.dryRun)
+    return { harness, status: "would wire", detail: `merge into ${path}` };
+  writeOut(path, JSON.stringify(json, null, 2) + "\n");
+  return {
+    harness,
+    status: "wired",
+    detail: "card in openclaw.json (skills.entries.openspender.env)",
+  };
+}
+
 const HARNESSES = [
   ["Claude Code", wireClaudeCode],
   ["Codex", wireCodex],
   ["opencode", wireOpencode],
   ["Gemini CLI", wireGemini],
   ["Cursor", wireCursor],
+  ["Hermes", wireHermes],
+  ["OpenClaw", wireOpenclaw],
 ];
 
 /* ── the agent skill ──────────────────────────────────────────────────
@@ -382,6 +494,10 @@ const SKILL_HOMES = {
     kind: "block",
     path: () => join(homedir(), ".gemini", "GEMINI.md"),
   },
+  OpenClaw: {
+    kind: "file",
+    dir: () => join(homedir(), ".openclaw", "skills", "openspender"),
+  },
 };
 
 async function installSkills(outcomes, dryRun) {
@@ -410,10 +526,13 @@ async function installSkills(outcomes, dryRun) {
     landed.push(`${x.harness}${changed ? "" : " (already current)"}`);
   }
   const verb = dryRun ? "would install for" : "installed for";
+  const viaTools = outcomes
+    .filter((x) => !SKILL_HOMES[x.harness] && x.status !== "skipped")
+    .map((x) => x.harness);
   console.log(
     `\nSkill v${skillVersion(skill)} ${verb}: ${landed.join(", ")}.` +
-      (outcomes.some((x) => x.harness === "Cursor" && x.status !== "skipped")
-        ? "\nCursor reads the same guidance from the server's tool descriptions."
+      (viaTools.length
+        ? `\n${viaTools.join(" and ")} read${viaTools.length === 1 ? "s" : ""} the same guidance from the server's tool descriptions.`
         : ""),
   );
 }
