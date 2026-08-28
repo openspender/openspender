@@ -386,6 +386,49 @@ export function wireOpenclaw(o) {
   };
 }
 
+/* ── Grok Build (xAI): its own CLI owns the config, like Claude Code.
+   Idempotence is checked textually against ~/.grok/config.toml first so
+   reruns never re-add; the actual write always goes through `grok mcp
+   add`, whose schema is theirs to keep current. ── */
+export function wireGrokBuild(o) {
+  const harness = "Grok Build";
+  if (!binaryExists("grok"))
+    return { harness, status: "skipped", detail: "grok not on PATH" };
+
+  const cfg = join(homedir(), ".grok", "config.toml");
+  const current = existsSync(cfg) ? readFileSync(cfg, "utf8") : "";
+  if (/\[mcp_servers\.openspender\]/.test(current) && !o.force)
+    return { harness, status: "already", detail: cfg };
+
+  const args = [
+    "mcp",
+    "add",
+    "--transport",
+    "http",
+    "openspender",
+    MCP_URL,
+    ...(o.card ? ["--header", `Authorization: Bearer ${o.card}`] : []),
+  ];
+  if (o.dryRun)
+    return { harness, status: "would wire", detail: `grok ${args.join(" ")}` };
+  const r = spawnSync("grok", args, {
+    shell: WIN,
+    timeout: 30_000,
+    stdio: "pipe",
+  });
+  if (r.status !== 0)
+    return {
+      harness,
+      status: "failed",
+      detail: (r.stderr?.toString() ?? "grok mcp add failed").slice(0, 120),
+    };
+  return {
+    harness,
+    status: "wired",
+    detail: o.card ? "card header set" : "authenticates on first use",
+  };
+}
+
 const HARNESSES = [
   ["Claude Code", wireClaudeCode],
   ["Codex", wireCodex],
@@ -394,6 +437,7 @@ const HARNESSES = [
   ["Cursor", wireCursor],
   ["Hermes", wireHermes],
   ["OpenClaw", wireOpenclaw],
+  ["Grok Build", wireGrokBuild],
 ];
 
 /* ── the agent skill ──────────────────────────────────────────────────
@@ -511,8 +555,12 @@ async function installSkills(outcomes, dryRun) {
   if (!eligible.length) return;
   const skill = await fetchSkill();
   if (!skill) {
+    // The URL gets its own line: scrapers indexing this string as prose
+    // were gluing the trailing sentence onto the link (observed live as
+    // 404s for /SKILL.md%20—%20rerun…).
     console.log(
-      `\nSkill: couldn't fetch ${SKILL_URL} — rerun \`npx openspender connect\` later to install it.`,
+      "\nSkill: couldn't fetch it — rerun `npx openspender connect` later to install it.\n  " +
+        SKILL_URL,
     );
     return;
   }
