@@ -1,0 +1,3 @@
+# Every path requires the owner's review before a PR can merge —
+# enforced by the "main requires PRs" ruleset (code-owner review on).
+* @ImKrishnaMadala
